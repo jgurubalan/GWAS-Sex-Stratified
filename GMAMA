@@ -1,0 +1,53 @@
+#!/bin/bash
+
+# Ensure the script is executable
+chmod +x "$0"
+
+# Check if the correct number of arguments is provided
+if [ "$#" -lt 4 ] || [ "$#" -gt 5 ]; then
+    echo "Usage: $0 <female_plink> <female_freq> <male_plink> <male_freq> [output_prefix]"
+    exit 1
+fi
+
+# Assign input arguments to variables
+FEMALE_PLINK=$1
+FEMALE_FREQ=$2
+MALE_PLINK=$3
+MALE_FREQ=$4
+
+# Set chromosome number (assuming all inputs are for chromosome 6)
+CHR=6
+
+# Determine output prefix
+if [ -n "$5" ]; then
+    PREFIX="$5"
+else
+    PREFIX="$(basename $FEMALE_PLINK .assoc.logistic)"
+fi
+
+# Define output filenames
+MAP_FILE="$(dirname $FEMALE_PLINK)/${PREFIX}_chr${CHR}.map"
+FEMALE_GWAMA="$(dirname $FEMALE_PLINK)/${PREFIX}_female.gwama"
+MALE_GWAMA="$(dirname $MALE_PLINK)/${PREFIX}_male.gwama"
+GWAMA_IN="$(dirname $FEMALE_PLINK)/${PREFIX}_chr${CHR}.gwama.in"
+GWAMA_OUT="$(dirname $FEMALE_PLINK)/${PREFIX}_sex_diff_chr${CHR}.gwama"
+
+# Create marker map file
+echo -e "$CHR\t$CHR:1\t0\t1" > $MAP_FILE
+
+cat $FEMALE_PLINK |
+    gawk '{print $1,$2,$3}' |
+    grep -v CHR |
+    gawk 'BEGIN{OFS="\t"}{print $1,$2,"0",$3}' |
+    sort -k 4 >> $MAP_FILE
+
+# Convert to GWAMA input
+perl bin/PLINK2GWAMA.pl $FEMALE_PLINK $FEMALE_FREQ $FEMALE_GWAMA OR
+perl bin/PLINK2GWAMA.pl $MALE_PLINK $MALE_FREQ $MALE_GWAMA OR
+
+# Create GWAMA input file
+echo "$FEMALE_GWAMA F
+$MALE_GWAMA M" > $GWAMA_IN
+
+# Run GWAMA
+./bin/GWAMA -i $GWAMA_IN --name_marker MARKER -o $GWAMA_OUT -m $MAP_FILE --sex
