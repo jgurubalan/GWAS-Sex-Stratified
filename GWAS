@@ -1,0 +1,41 @@
+#!/bin/bash
+
+# Usage: ./gwas_analysis.sh <input_file_prefix> <output_prefix>
+
+if [ "$#" -ne 2 ]; then
+    echo "Usage: $0 <input_file_prefix> <output_prefix>"
+    exit 1
+fi
+
+INPUT_PREFIX=$1
+OUTPUT_PREFIX=$2
+
+####
+# 1. RUN ASSOCIATION TESTS.
+####
+
+# Run GWAS for all individuals
+plink --bfile ${INPUT_PREFIX} --allow-no-sex --logistic --ci 0.95 --out ${OUTPUT_PREFIX}_all --silent
+plink --bfile ${INPUT_PREFIX} --allow-no-sex --freq --out ${OUTPUT_PREFIX}_all --silent
+
+# Run female-specific analysis
+plink --bfile ${INPUT_PREFIX} --allow-no-sex --filter-females --logistic --ci 0.95 --out ${OUTPUT_PREFIX}_female --silent
+plink --bfile ${INPUT_PREFIX} --allow-no-sex --filter-females --freq --out ${OUTPUT_PREFIX}_female --silent
+
+# Run male-specific analysis
+plink --bfile ${INPUT_PREFIX} --allow-no-sex --filter-males --logistic --ci 0.95 --out ${OUTPUT_PREFIX}_male --silent
+plink --bfile ${INPUT_PREFIX} --allow-no-sex --filter-males --freq --out ${OUTPUT_PREFIX}_male --silent
+
+# Run interaction analysis
+plink --bfile ${INPUT_PREFIX} --allow-no-sex --logistic sex interaction --ci 0.95 --out ${OUTPUT_PREFIX}_interaction --silent
+
+####
+# 2. EXTRACT SEX INTERACTION TERMS.
+####
+
+# Extract ADDxSEX from interaction analysis
+head -1 ${OUTPUT_PREFIX}_interaction.assoc.logistic > ${OUTPUT_PREFIX}_sex_interaction.assoc.logistic
+grep ADDxSEX ${OUTPUT_PREFIX}_interaction.assoc.logistic >> ${OUTPUT_PREFIX}_sex_interaction.assoc.logistic
+
+# Completion message
+echo "GWAS analysis completed. Results saved with prefix: ${OUTPUT_PREFIX}"
