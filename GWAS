@@ -10,32 +10,71 @@ fi
 INPUT_PREFIX=$1
 OUTPUT_PREFIX=$2
 
+LOGFILE="${OUTPUT_PREFIX}_gwas.log"
+
+echo "Starting GWAS analysis at $(date)" > $LOGFILE
+echo "Input prefix: $INPUT_PREFIX" >> $LOGFILE
+echo "Output prefix: $OUTPUT_PREFIX" >> $LOGFILE
+
 ####
-# 1. RUN ASSOCIATION TESTS.
+# 0. RUN PCA (TOP 3 PCs)
+####
+echo "Running PCA..." | tee -a $LOGFILE
+plink --bfile ${INPUT_PREFIX} --pca 3 --allow-no-sex --out ${OUTPUT_PREFIX}_pca --silent
+
+if [ ! -f ${OUTPUT_PREFIX}_pca.eigenvec ]; then
+    echo "ERROR: PCA failed. Eigenvec file not created." | tee -a $LOGFILE
+    exit 1
+fi
+
+# Add header to PCA eigenvec file
+echo "Adding header to PCA file..." | tee -a $LOGFILE
+(echo -e "FID\tIID\tPC1\tPC2\tPC3"; cat ${OUTPUT_PREFIX}_pca.eigenvec) > ${OUTPUT_PREFIX}_pca_headered.eigenvec
+
+####
+# 1. GWAS with PCA adjustment
 ####
 
-# Run GWAS for all individuals
-plink --bfile ${INPUT_PREFIX} --allow-no-sex --logistic --ci 0.95 --out ${OUTPUT_PREFIX}_all --silent
+## ALL INDIVIDUALS
+echo "Running GWAS: All individuals..." | tee -a $LOGFILE
+plink --bfile ${INPUT_PREFIX} --allow-no-sex --logistic --ci 0.95 \
+  --covar ${OUTPUT_PREFIX}_pca_headered.eigenvec --covar-name PC1,PC2,PC3 \
+  --out ${OUTPUT_PREFIX}_all --silent
+
 plink --bfile ${INPUT_PREFIX} --allow-no-sex --freq --out ${OUTPUT_PREFIX}_all --silent
 
-# Run female-specific analysis
-plink --bfile ${INPUT_PREFIX} --allow-no-sex --filter-females --logistic --ci 0.95 --out ${OUTPUT_PREFIX}_female --silent
+## FEMALES
+echo "Running GWAS: Females only..." | tee -a $LOGFILE
+plink --bfile ${INPUT_PREFIX} --allow-no-sex --filter-females --logistic --ci 0.95 \
+  --covar ${OUTPUT_PREFIX}_pca_headered.eigenvec --covar-name PC1,PC2,PC3 \
+  --out ${OUTPUT_PREFIX}_female --silent
+
 plink --bfile ${INPUT_PREFIX} --allow-no-sex --filter-females --freq --out ${OUTPUT_PREFIX}_female --silent
 
-# Run male-specific analysis
-plink --bfile ${INPUT_PREFIX} --allow-no-sex --filter-males --logistic --ci 0.95 --out ${OUTPUT_PREFIX}_male --silent
+## MALES
+echo "Running GWAS: Males only..." | tee -a $LOGFILE
+plink --bfile ${INPUT_PREFIX} --allow-no-sex --filter-males --logistic --ci 0.95 \
+  --covar ${OUTPUT_PREFIX}_pca_headered.eigenvec --covar-name PC1,PC2,PC3 \
+  --out ${OUTPUT_PREFIX}_male --silent
+
 plink --bfile ${INPUT_PREFIX} --allow-no-sex --filter-males --freq --out ${OUTPUT_PREFIX}_male --silent
 
-# Run interaction analysis
-plink --bfile ${INPUT_PREFIX} --allow-no-sex --logistic sex interaction --ci 0.95 --out ${OUTPUT_PREFIX}_interaction --silent
+## SEX INTERACTION
+echo "Running GWAS: Sex interaction..." | tee -a $LOGFILE
+plink --bfile ${INPUT_PREFIX} --allow-no-sex --logistic sex interaction --ci 0.95 \
+  --covar ${OUTPUT_PREFIX}_pca_headered.eigenvec --covar-name PC1,PC2,PC3 \
+  --out ${OUTPUT_PREFIX}_interaction --silent
 
 ####
-# 2. EXTRACT SEX INTERACTION TERMS.
+# 2. EXTRACT ADDxSEX INTERACTION TERMS
 ####
+echo "Extracting ADDxSEX interaction terms..." | tee -a $LOGFILE
+if [ -f ${OUTPUT_PREFIX}_interaction.assoc.logistic ]; then
+    head -1 ${OUTPUT_PREFIX}_interaction.assoc.logistic > ${OUTPUT_PREFIX}_sex_interaction.assoc.logistic
+    grep ADDxSEX ${OUTPUT_PREFIX}_interaction.assoc.logistic >> ${OUTPUT_PREFIX}_sex_interaction.assoc.logistic
+else
+    echo "WARNING: Interaction results missing; skipping ADDxSEX extraction." | tee -a $LOGFILE
+fi
 
-# Extract ADDxSEX from interaction analysis
-head -1 ${OUTPUT_PREFIX}_interaction.assoc.logistic > ${OUTPUT_PREFIX}_sex_interaction.assoc.logistic
-grep ADDxSEX ${OUTPUT_PREFIX}_interaction.assoc.logistic >> ${OUTPUT_PREFIX}_sex_interaction.assoc.logistic
-
-# Completion message
-echo "GWAS analysis completed. Results saved with prefix: ${OUTPUT_PREFIX}"
+echo "GWAS analysis completed at $(date)." | tee -a $LOGFILE
+echo "Results saved with prefix: ${OUTPUT_PREFIX}" | tee -a $LOGFILE
